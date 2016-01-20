@@ -1,0 +1,73 @@
+#!/usr/bin/ol --run
+
+(define-values (myy-eval myy-apply)
+
+   (define (myy-eval env exp)
+      (cond
+         ((pair? exp)
+            (cond
+               ((eq? (car exp) 'lambda)
+                  (list 'closure env exp))
+               ((eq? (car exp) 'quote)
+                  (cadr exp))
+               ((eq? (car exp) 'if)
+                  (let ((result (myy-eval env (cadr exp))))
+                     (if result
+                        (myy-eval env (caddr exp))
+                        (myy-eval env (cadddr exp)))))
+               (else
+                  (myy-apply env
+                     (myy-eval env (car exp))
+                     (map (lambda (x) (myy-eval env x)) (cdr exp))))))
+         ((symbol? exp)
+            (let ((val (get env exp 'unbound)))
+               (if (eq? val 'unbound)
+                  (error "unbound symbol: " exp)
+                  val)))
+         (else exp)))
+
+   (define (myy-apply env rator rands)
+      (print (list 'apply rator rands))
+      (cond
+         ((function? rator)
+            (apply rator rands))
+         ((and (pair? rator) (eq? (car rator) 'lambda))
+            (let ((formals (cadr rator)) (body (caddr rator)))
+               (myy-eval
+                  (fold (λ (env pair) (put env (car pair) (cdr pair)))
+                     env (zip cons formals rands))
+                  body)))
+         ((and (pair? rator) (eq? (car rator) 'closure))
+            (let ((clos-env (cadr rator)) (code (caddr rator)))
+               (myy-apply
+                  (ff-union clos-env env (lambda (a b) a))
+                  code rands)))
+         (else
+            (error "how do i apply " rator))))
+
+   (values myy-eval myy-apply))
+
+(define (repl env)
+   (display "myy> ")
+   (let ((exp (read stdin)))
+      (if (and (pair? exp) (eq? (car exp) 'define))
+         (lets
+            ((name (cadr exp))
+             (value (myy-eval env (caddr exp))))
+            (print "Defining " name " as " value)
+            (repl (put env name value)))
+         (begin
+            (print " -> " (myy-eval env exp))
+            (repl env)))))
+
+(lambda (args)
+   (print "Welcome to Myy Lisp!")
+   (repl 
+      (-> empty
+         (put '+ +)
+         (put 'cons cons)
+         (put 'car car)
+         (put 'cdr cdr)
+         (put 'null? null?)
+         (put 'eq? eq?))))
+
