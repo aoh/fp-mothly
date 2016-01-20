@@ -54,6 +54,16 @@
 
 ;;; ----------------------------------------------
 
+(define oma-callcc  ('_sans_cps (λ (k f) (f k (λ (r a) (k a))))))
+
+(oma-callcc
+   (lambda (k)
+      (print "hello")
+      (k "nope")
+      (print "world")))
+
+;;; ----------------------------------------------
+
 (define (print . args)
    (for-each display args)
    (newline))
@@ -73,84 +83,58 @@
                         (k x))))
                . exps)))))
 
-(try (print 1) (fail "nope") (print 2))
+(try 
+   (print 1)
+   (fail "nope") 
+   (print 2))
 
-;;; -----------------------------------------------
+(define (tsekkaa a)
+   (if (< a 0) (fail "liian pieni"))
+   (if (> a 100) (fail "liian iso"))
+   a)
 
-(define (match exp pat)
-   (cond
-      ((eq? pat '?)
-         (list exp))
-      ((pair? pat)
-         (if (pair? exp)
-            (let ((a (match (car exp) (car pat))))
-               (cond
-                  ((not a)
-                     #false)
-                  ((null? a)
-                     (match (cdr exp) (cdr pat)))
-                  (else
-                     (append a (match (cdr exp) (cdr pat))))))
-            #false))
-      ((eq? exp pat)
-         null)
-      (else #false)))
+(define (add-safely a b)
+   (+ (tsekkaa a) (tsekkaa b)))
 
-(define (simple? exp)
-   (if (pair? exp)
-      (eq? (car exp) 'quote)
-      #true))
+(try
+   (add-safely 0
+      (add-safely 40
+        (add-safely 50 -60))))
 
-(define (non-simple? exp)
-   (not (simple? exp)))
+;;; -------------------------------------------------
 
-(define (cps exp)
+(define (print . args)
+   (for-each display args)
+   (newline))
 
-   (define (cps-any exp cont free)
-      (cond
-         ((simple? exp)
-            (values (list cont exp) free))
-         ((match exp '(lambda ? ?))
-            (apply
-               (lambda (formals body)
-                  (lets
-                     ((k free)
-                      (free (gensym free))
-                      (body free (cps-any body k free)))
-                     (values
-                        (list cont
-                           (list 'lambda (cons k formals) body))
-                        free)))
-               (cdr exp)))
-         ((first non-simple? exp #f) =>
-            (λ (call)
-               (lets
-                  ((var free)
-                   (free (gensym free))
-                   (rest free
-                     (cps-any
-                        (map (λ (x) (if (eq? x call) var x)) exp)
-                        cont free)))
-                  (cps-any call `(lambda (,var) ,rest) free))))
-         (else
-            (values
-               (cons (car exp)
-                  (cons cont (cdr exp)))
-            free))))
+(define (go-back) #f)
+      
+(define (joku . args)
+   (call-with-current-continuation
+      (lambda (k)
+         (let ((old-back go-back))
+            (set! go-back
+               (lambda ()
+                  (if (null? args)
+                     (begin
+                        (set! go-back old-back)
+                        (go-back))
+                     (let ((a (car args)))
+                        (set! args (cdr args))
+                        (k a)))))
+            (go-back)))))
 
-   (lets
-      ((k (gensym exp))
-       (exp free (cps-any exp k (gensym k))))
-      exp))
+(let*
+   ((a (joku 2 4 6 8 ))
+    (b (joku 1 (joku 0.6 1.2 5.6) 5 7 9)))
+   (if (< (* a b) 20) 
+      (go-back))
+   (if (>= (* a b) 30)
+      (go-back))
+   (print a " * " b " = " (* a b))
+   ;(go-back)
+   )
 
-(let loop ()
-   (display "cps: ")
-   (let ((exp (read stdin)))
-      (if (eof? exp)
-         'done
-         (begin
-            (print exp " => " (cps exp))
-            (loop)))))
 
 ;; ---------------------------------------------------------------------
 ;; scheme
@@ -160,31 +144,32 @@
    (for-each display args)
    (newline))
 
-;; (todo . done)
-(define threads (cons (list) (list)))
-(define tc (lambda (x) x))
+(define (tc x) x)
+(define threads '())
+
+(define (start!)
+   (call-with-current-continuation
+      (lambda (exit)
+         (set! tc exit)
+         (go!))))
 
 (define (go!)
-   (if (null? (car threads))
-      (begin
-         (set-car! threads (cdr threads))
-         (set-cdr! threads (list))))
-   (if (null? (car threads))
+   (if (null? threads)
       (tc 'done)
-      (let ((next (caar threads)))
-         (set-car! threads (cdar threads))
-         (next 'resumed))))
+      (let ((fst (car threads)))
+         (set! threads (cdr threads))
+         (fst 'resumed))))
 
 (define (next-thread!)
    (call-with-current-continuation
       (lambda (continue)
-         (set-cdr! threads (cons continue (cdr threads)))
+         (set! threads (append threads (list continue)))
          (go!))))
  
 (define-syntax fork
    (syntax-rules ()
-      ((fork exp )
-         (set-car! threads (cons (lambda (x) exp (go!)) (car threads))))))
+      ((fork exp)
+         (set! threads (cons (lambda (x) exp (go!)) threads)))))
 
 (define (counter message n)
    (next-thread!)
@@ -193,35 +178,27 @@
       'done
       (counter message (- n 1))))
 
-(define (looper x)
-   (next-thread!)
-   (looper x))
+(fork (counter "aaaaaaaa at " 8))
+(fork (counter "bbbbbb at " 6))
+(fork (counter "cccc at " 4))
+(fork (counter "dd at " 2))
 
-(fork (counter "a at " 10))
-(fork (counter "b at " 20))
-(fork (counter "c at " 30))
-(fork (counter "d at " 40))
+(start!)
 
-(fork (looper 1))
-(fork (looper 2))
-(fork (looper 3))
-(fork (looper 4))
+(define-syntax pdefine
+   (syntax-rules ()
+      ((pdefine (var . args) . body)
+         (define (var . args)
+            (next-thread!)
+            . body))))
 
-(define (start!)
-   (call-with-current-continuation
-      (lambda (exit)
-         (set! tc exit)
-         (go!))))
+(pdefine (laskuri nimi n)
+   (if (= n 0)
+      (print nimi "bling!")
+      (laskuri nimi (- n 1))))
 
+(fork (laskuri "pitkä " 10000))
+(fork (laskuri "lyhyt " 10))
+(fork (laskuri "keski " 1000))
 
-
-
-
-
-
-
-
-
-
-
-
+(start!)
