@@ -1,10 +1,15 @@
 
+;; Programming languages should be designed not by piling feature on top of feature, but by removing the weaknesses and restrictions that make additional features appear necessary.
+
+; monadit kategoriateoria kontinuaatiot tyyppiteoria 
+
 (define (fakt x)
    (if (= x 0)
       1
       (* x (fakt (- x 1)))))
 
 (fakt 60)
+
 ;;; -----------------------------------------------
 
 (define id (lambda (x) x))
@@ -42,15 +47,58 @@
 
 ;;; ---------------------------------------------
 
+(define-syntax CPS
+   (syntax-rules (if quote)
+      ((CPS k (lambda (arg ...) body))
+         (k (lambda (x arg ...) (CPS x body))))
+      ((CPS k (x ... (op . args) y ...))
+         (CPS
+            (lambda (r)
+               (CPS k (x ... r y ...)))
+            (op . args)))
+      ((CPS k (quote val))
+         (k (quote val)))
+      ((CPS k (if (op . args) a b))
+         (CPS 
+            (lambda (test) (CPS k (if test a b)))
+            (op . args)))
+      ((CPS k (if test a b))
+         (if test
+            (CPS k a)
+            (CPS k b)))
+      ((CPS k (rator rand ...))
+         (rator k rand ...))
+      ((CPS k x)
+         (k x))
+      ((CPS value)
+         (lambda (k) (CPS k value)))))
+
+,expand (CPS 42)
+,expand (CPS (+ 1 2))
+,expand (CPS (+ 1 (+ 2 3)))
+,expand (CPS (lambda (x) (x x)))
+
+(define (add-cps k a b) (k (+ a b)))
+
+((CPS (add-cps 111 222)) (lambda (x) x))
+
+;;; ---------------------------------------------
+
 (call/cc
    (lambda (k)
       (print "hello")
-      (k "nope")
+      (k "goodbye")
       (print "world")))
 
 ;;; ----------------------------------------------
 
-(call/cc (lambda (k) (fold (lambda (s a) (if (number? a) (* s a) (k a))) 1 '(1 2 3 4 x))))
+(fold (lambda (s a) (* s a)) 1 '(1 2 3 4 5))
+
+(fold (lambda (s a) (* s a)) 1 '(1 2 3 4 5 x))
+
+(call/cc (lambda (ret) (fold (lambda (s a) (* s a)) 1 '(1 2 3 4 5))))
+
+(call/cc (lambda (ret) (fold (lambda (s a) (if (not (number? a)) (ret a)) (* s a)) 1 '(1 2 3 4 5))))
 
 ;;; ----------------------------------------------
 
@@ -59,10 +107,20 @@
 (oma-callcc
    (lambda (k)
       (print "hello")
-      (k "nope")
+      (k "BYE")
       (print "world")))
 
 ;;; ----------------------------------------------
+
+(define foo 42)
+(define k (call/cc (lambda (x) x)))
+k
+(define bar 100)
+(k 'hello)
+k bar?
+
+;;; ----------------------------------------------
+;;; SWITCH TO SCHEME
 
 (define (print . args)
    (for-each display args)
@@ -97,9 +155,10 @@
    (+ (tsekkaa a) (tsekkaa b)))
 
 (try
-   (add-safely 0
-      (add-safely 40
-        (add-safely 50 -60))))
+   (print "" 
+      (add-safely 0
+         (add-safely 40
+           (add-safely 50 -60)))))
 
 ;;; -------------------------------------------------
 
@@ -107,33 +166,32 @@
    (for-each display args)
    (newline))
 
-(define (go-back) #f)
+(define (ei) #f)
       
 (define (joku . args)
    (call-with-current-continuation
       (lambda (k)
-         (let ((old-back go-back))
-            (set! go-back
+         (let ((old-back ei))
+            (set! ei
                (lambda ()
                   (if (null? args)
                      (begin
-                        (set! go-back old-back)
-                        (go-back))
+                        (set! ei old-back)
+                        (ei))
                      (let ((a (car args)))
                         (set! args (cdr args))
                         (k a)))))
-            (go-back)))))
+            (ei)))))
 
 (let*
    ((a (joku 2 4 6 8 ))
     (b (joku 1 (joku 0.6 1.2 5.6) 5 7 9)))
    (if (< (* a b) 20) 
-      (go-back))
+      (ei))
    (if (>= (* a b) 30)
-      (go-back))
+      (ei))
    (print a " * " b " = " (* a b))
-   ;(go-back)
-   )
+   (ei))
 
 
 ;; ---------------------------------------------------------------------
@@ -178,10 +236,10 @@
       'done
       (counter message (- n 1))))
 
-(fork (counter "aaaaaaaa at " 8))
-(fork (counter "bbbbbb at " 6))
-(fork (counter "cccc at " 4))
-(fork (counter "dd at " 2))
+(fork (counter "aaaa at " 4))
+(fork (counter "bbb at " 3))
+(fork (counter "cc at " 2))
+(fork (counter "d at " 1))
 
 (start!)
 
@@ -197,8 +255,17 @@
       (print nimi "bling!")
       (laskuri nimi (- n 1))))
 
-(fork (laskuri "pitkä " 10000))
+(fork (laskuri "pitkä " 100000))
 (fork (laskuri "lyhyt " 10))
-(fork (laskuri "keski " 1000))
+(fork (laskuri "keski " 100))
 
 (start!)
+
+;; räntit
+
+; try/catch
+; generaattorit
+; threadit
+; callbackit
+
+
